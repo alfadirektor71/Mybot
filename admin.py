@@ -110,7 +110,7 @@ async def bcast_text_start(call: CallbackQuery, state: FSMContext):
     if not await adm(call.from_user.id):
         return
     await call.message.answer(
-        "✍️ Xabar matnini yuboring.\n\n📌 Tugma qo'shish:\n<code>[Nomi[https://havola.com]]</code>",
+        "✍️ Xabar matnini yuboring.\n\nPremium emoji ham ishlaydi!\n\n📌 Tugma qo'shish:\n<code>[Nomi[https://havola.com]]</code>",
         reply_markup=cancel_keyboard(), parse_mode="HTML"
     )
     await state.set_state(AdminStates.broadcast_text)
@@ -118,61 +118,122 @@ async def bcast_text_start(call: CallbackQuery, state: FSMContext):
 
 
 @router.message(AdminStates.broadcast_text)
-async def bcast_text_send(message: Message, state: FSMContext, bot: Bot):
+async def bcast_text_preview(message: Message, state: FSMContext, bot: Bot):
     if message.text == "❌ Bekor qilish":
         await state.clear()
         await message.answer("❌ Bekor.", reply_markup=admin_panel_keyboard())
         return
-    raw = message.html_text or message.text or ""
-    buttons = parse_buttons(raw)
-    clean_text = strip_buttons(raw)
-    kb = build_inline_kb(buttons)
+    users = await db.get_all_users()
+    count = sum(1 for u in users if not u["is_banned"])
+    await message.answer("👁 <b>Preview:</b>", parse_mode="HTML")
+    try:
+        await bot.copy_message(
+            chat_id=message.from_user.id,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+    except Exception:
+        pass
+    await state.update_data(
+        bcast_from_chat=message.chat.id,
+        bcast_msg_id=message.message_id,
+        bcast_type="text"
+    )
+    confirm_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Yuborish", callback_data="bcast_confirm:yes"),
+        InlineKeyboardButton(text="❌ Bekor", callback_data="bcast_confirm:no")
+    ]])
+    await message.answer(
+        f"📊 Foydalanuvchilar: <b>{count} ta</b>\n\nYuborilsinmi?",
+        reply_markup=confirm_kb, parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("bcast_confirm:"))
+async def bcast_confirm(call: CallbackQuery, state: FSMContext, bot: Bot):
+    if not await adm(call.from_user.id):
+        return
+    action = call.data.split(":")[1]
+    if action == "no":
+        await state.clear()
+        try:
+            await call.message.edit_reply_markup()
+        except Exception:
+            pass
+        await call.message.answer("❌ Bekor qilindi.", reply_markup=admin_panel_keyboard())
+        await call.answer()
+        return
+    data = await state.get_data()
+    await state.clear()
+    try:
+        await call.message.edit_reply_markup()
+    except Exception:
+        pass
+    from_chat = data.get("bcast_from_chat")
+    msg_id = data.get("bcast_msg_id")
     users = await db.get_all_users()
     sent, failed = 0, 0
+    progress = await call.message.answer("⏳ Yuborilmoqda...")
     for u in users:
         if u["is_banned"]:
             continue
         try:
-            await bot.send_message(u["user_id"], clean_text, parse_mode="HTML", reply_markup=kb)
+            await bot.copy_message(chat_id=u["user_id"], from_chat_id=from_chat, message_id=msg_id)
             sent += 1
         except Exception:
             failed += 1
-    await state.clear()
-    await message.answer(
-        f"✅ Yuborildi!\n✅ Muvaffaqiyatli: <b>{sent}</b>\n❌ Yuborilmadi: <b>{failed}</b>",
+    try:
+        await progress.delete()
+    except Exception:
+        pass
+    await call.message.answer(
+        f"✅ Xabar yuborildi!\n✅ Muvaffaqiyatli: <b>{sent}</b>\n❌ Yuborilmadi: <b>{failed}</b>",
         reply_markup=admin_panel_keyboard(), parse_mode="HTML"
     )
+    await call.answer()
 
 
 @router.callback_query(F.data == "bcast:forward")
 async def bcast_forward_start(call: CallbackQuery, state: FSMContext):
     if not await adm(call.from_user.id):
         return
-    await call.message.answer("↩️ Forward xabarni yuboring:", reply_markup=cancel_keyboard())
+    await call.message.answer(
+        "↩️ Forward xabarni yuboring\n(premium emoji, rasm, video hammasi saqlanadi):",
+        reply_markup=cancel_keyboard()
+    )
     await state.set_state(AdminStates.broadcast_forward_wait)
     await call.answer()
 
 
 @router.message(AdminStates.broadcast_forward_wait)
-async def bcast_forward_send(message: Message, state: FSMContext, bot: Bot):
+async def bcast_forward_preview(message: Message, state: FSMContext, bot: Bot):
     if message.text == "❌ Bekor qilish":
         await state.clear()
         await message.answer("❌ Bekor.", reply_markup=admin_panel_keyboard())
         return
     users = await db.get_all_users()
-    sent, failed = 0, 0
-    for u in users:
-        if u["is_banned"]:
-            continue
-        try:
-            await bot.copy_message(chat_id=u["user_id"], from_chat_id=message.chat.id, message_id=message.message_id)
-            sent += 1
-        except Exception:
-            failed += 1
-    await state.clear()
+    count = sum(1 for u in users if not u["is_banned"])
+    await message.answer("👁 <b>Preview:</b>", parse_mode="HTML")
+    try:
+        await bot.copy_message(
+            chat_id=message.from_user.id,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+    except Exception:
+        pass
+    await state.update_data(
+        bcast_from_chat=message.chat.id,
+        bcast_msg_id=message.message_id,
+        bcast_type="forward"
+    )
+    confirm_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Yuborish", callback_data="bcast_confirm:yes"),
+        InlineKeyboardButton(text="❌ Bekor", callback_data="bcast_confirm:no")
+    ]])
     await message.answer(
-        f"✅ Forward yuborildi!\n✅ Muvaffaqiyatli: <b>{sent}</b>\n❌ Yuborilmadi: <b>{failed}</b>",
-        reply_markup=admin_panel_keyboard(), parse_mode="HTML"
+        f"📊 Foydalanuvchilar: <b>{count} ta</b>\n\nYuborilsinmi?",
+        reply_markup=confirm_kb, parse_mode="HTML"
     )
 
 
