@@ -202,8 +202,10 @@ async def bcast_got_button(message: Message, state: FSMContext, bot: Bot):
         [InlineKeyboardButton(text="➕ Yana tugma qo'shish", callback_data="bcast_add_btn")],
         [InlineKeyboardButton(text="✅ Tayyor", callback_data="bcast_no_btn")]
     ])
+    btn_list = "\n".join([f"• {b['name']}" for b in buttons])
     await message.answer(
-        f"✅ Tugma qo'shildi: <b>{btn_name}</b>\n\nYana tugma qo'shmoqchimisiz?",
+        f"✅ Tugma qo'shildi: <b>{btn_name}</b>\n\n"
+        f"Tugmalar:\n{btn_list}\n\nYana tugma qo'shmoqchimisiz?",
         reply_markup=more_kb, parse_mode="HTML"
     )
 
@@ -214,7 +216,6 @@ async def _show_bcast_preview(msg, state: FSMContext, bot: Bot, user_id: int):
     msg_id = data.get("bcast_msg_id")
     buttons = data.get("bcast_buttons", [])
     
-    # Inline keyboard yasash
     kb = None
     if buttons:
         kb = InlineKeyboardMarkup(
@@ -226,12 +227,22 @@ async def _show_bcast_preview(msg, state: FSMContext, bot: Bot, user_id: int):
     
     await bot.send_message(user_id, "👁 <b>Preview:</b>", parse_mode="HTML")
     try:
-        await bot.copy_message(
+        # Avval xabarni copy qilamiz
+        sent_msg = await bot.copy_message(
             chat_id=user_id,
             from_chat_id=from_chat,
-            message_id=msg_id,
-            reply_markup=kb
+            message_id=msg_id
         )
+        # Keyin tugmani alohida edit qilamiz
+        if kb:
+            try:
+                await bot.edit_message_reply_markup(
+                    chat_id=user_id,
+                    message_id=sent_msg.message_id,
+                    reply_markup=kb
+                )
+            except Exception:
+                pass
     except Exception:
         pass
     
@@ -287,12 +298,20 @@ async def bcast_confirm(call: CallbackQuery, state: FSMContext, bot: Bot):
         if u["is_banned"]:
             continue
         try:
-            await bot.copy_message(
+            sent_msg = await bot.copy_message(
                 chat_id=u["user_id"],
                 from_chat_id=from_chat,
-                message_id=msg_id,
-                reply_markup=kb
+                message_id=msg_id
             )
+            if kb:
+                try:
+                    await bot.edit_message_reply_markup(
+                        chat_id=u["user_id"],
+                        message_id=sent_msg.message_id,
+                        reply_markup=kb
+                    )
+                except Exception:
+                    pass
             sent += 1
         except Exception:
             failed += 1
