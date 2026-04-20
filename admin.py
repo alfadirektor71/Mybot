@@ -754,6 +754,64 @@ async def ch_get_link(message: Message, state: FSMContext):
     await message.answer(f"✅ Qo'shildi: <b>{ch_name}</b>", reply_markup=admin_channels_keyboard(channels), parse_mode="HTML")
 
 
+@router.callback_query(F.data.startswith("ch_info:"))
+async def ch_info(call: CallbackQuery):
+    if not await adm(call.from_user.id):
+        return
+    ch_db_id = int(call.data.split(":")[1])
+    channels = await db.get_active_channels()
+    ch = next((c for c in channels if c["id"] == ch_db_id), None)
+    if not ch:
+        await call.answer("Topilmadi!", show_alert=True)
+        return
+    import aiosqlite
+    from database import DB_PATH
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT COUNT(*) FROM join_requests WHERE channel_id=?",
+            (str(ch["channel_id"]),)
+        ) as cur:
+            count = (await cur.fetchone())[0]
+    type_names = {
+        "channel_public": "Ommaviy kanal",
+        "channel_private": "Shaxsiy kanal",
+        "channel_request": "Zayavkali kanal",
+        "group_public": "Ommaviy guruh",
+        "group_private": "Shaxsiy guruh",
+        "group_request": "Zayavkali guruh",
+        "link": "Havola"
+    }
+    ch_type = type_names.get(ch["channel_type"], ch["channel_type"])
+    from keyboards import channel_info_keyboard
+    text = (
+        "<b>" + ch["channel_name"] + "</b>\n\n"
+        + "ID: <code>" + str(ch["channel_id"]) + "</code>\n"
+        + "Havola: " + ch["channel_link"] + "\n"
+        + "Turi: " + ch_type + "\n"
+        + "Zayavkalar: <b>" + str(count) + " ta</b>"
+    )
+    await call.message.edit_text(
+        text,
+        reply_markup=channel_info_keyboard(ch_db_id),
+        parse_mode="HTML"
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "back_to_channels")
+async def back_to_channels(call: CallbackQuery):
+    if not await adm(call.from_user.id):
+        return
+    channels = await db.get_active_channels()
+    from keyboards import admin_channels_keyboard
+    await call.message.edit_text(
+        "Majburiy obuna kanallar\nJami: <b>" + str(len(channels)) + "</b> ta",
+        reply_markup=admin_channels_keyboard(channels),
+        parse_mode="HTML"
+    )
+    await call.answer()
+
+
 @router.callback_query(F.data.startswith("del_channel:"))
 async def del_channel(call: CallbackQuery):
     if not await adm(call.from_user.id):
